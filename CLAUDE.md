@@ -29,7 +29,8 @@ Build:
 xcodebuild -project GymStats.xcodeproj -scheme GymStats -destination 'generic/platform=iOS Simulator' build
 ```
 
-Run the unit tests (the UI test target is the unused Xcode template; exclude it):
+Run the unit tests (the UI test target is still the unused Xcode template;
+exclude it):
 
 ```bash
 xcodebuild test -project GymStats.xcodeproj -scheme GymStats -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:GymStatsTests
@@ -68,7 +69,7 @@ GymStats/
   Models/     @Model classes — MUST NOT import SwiftUI
   Core/       Pure helpers: units, formatters, training math, preview sample data
   Features/   SwiftUI views, grouped by feature (Exercises, Templates, Workout,
-              History, Measurements) — not by type
+              History, Measurements, Settings) — not by type
 ```
 
 `Models/` must never `import SwiftUI`. That rule is what makes it a checkbox
@@ -152,13 +153,47 @@ Never rely on the stored array's order.
 
 ## Status
 
-Done: project skeleton, the seven `@Model` types, schema registration, unit
-conversion, preview sample data, three-tab placeholder shell, schema tests.
+The original milestone is complete. The app has three tabs:
 
-Next, in order: exercise library CRUD → template builder → active workout →
-history list/detail → previous-performance lookup → body measurements.
+- **Train** — routine list, routine editor, exercise library, active workout
+- **History** — sessions by month, read-only detail
+- **Body** — latest value per measurement type, per-type history with a trend chart
+
+Working end to end: exercise CRUD with archiving, template building with
+reordering and target sets, starting a workout from a routine, logging sets,
+finishing (which prunes incomplete sets), workout history, previous-performance
+display during a workout, personal-record detection, body measurements,
+measurement charts, per-exercise progression charts (top set / est. 1RM /
+volume), and a kg↔lb + cm↔in display preference.
 
 Deferred by decision, not oversight: App Group container (needs a paid developer
 account; postponed, will require a store migration), Swift 6 language mode
-(currently Swift 5 to avoid strict-concurrency noise while learning), charts, PR
-detection, Live Activities, HealthKit, widgets, CloudKit, watchOS.
+(currently Swift 5 to avoid strict-concurrency noise while learning), rest timer,
+Live Activities, HealthKit, widgets, CloudKit, watchOS.
+
+## Conventions worth matching
+
+- **Sheets are transactional, pushed screens save as you go.** A modal with
+  Cancel/Save copies into `@State` and writes on save (`ExerciseEditorView`,
+  `LogMeasurementView`). A pushed detail screen uses `@Bindable` and writes
+  through immediately (`TemplateEditorView`). Don't mix the two.
+- **Filtering and grouping happen in memory**, not in `@Query` predicates, except
+  where the predicate is static (history's `endedAt != nil`). A dynamic predicate
+  needs a custom initialiser and buys nothing at personal-library scale.
+- **Numeric text fields use `Binding<String>`**, not `format: .number`, so an
+  unset value shows a placeholder rather than a literal `0`, and a comma is
+  accepted as a decimal separator.
+- **Charts are not zero-based** for body measurements or weight metrics — see
+  `MeasurementChart`. Training *volume* is the exception and does start at zero,
+  because it is a quantity of work.
+- **Charts convert to display units before computing their axis domain**, so the
+  scale and its labels can never disagree.
+- **`UnitSettings` is the only place display conversion happens.** Views read
+  `@AppStorage(SettingsKey.weightUnit)` and build a `UnitSettings`; the store
+  stays kilograms and centimetres regardless.
+- **A `NavigationStack` with a `path` binding must use value-based links
+  throughout.** Mixing in a closure-based `NavigationLink` silently breaks any
+  value-based push made from inside it — see `TrainRoute`.
+- Personal records are measured by estimated 1RM (Epley), which captures both
+  more weight and more reps. Epley overestimates past ~12 reps; this is known and
+  deliberately not clamped.

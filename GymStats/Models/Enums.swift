@@ -68,4 +68,13 @@ enum MeasurementType: String, CaseIterable, Identifiable, Codable {
         default: .length
         }
     }
+
+    /// The unit values of this type are stored in. Display conversion happens in
+    /// `Core/Units.swift`, never here.
+    var canonicalUnitSymbol: String {
+        switch dimension {
+        case .mass: "kg"
+        case .length: "cm"
+        }
+    }
 }

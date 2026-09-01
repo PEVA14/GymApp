@@ -18,7 +18,6 @@ struct ExerciseLibraryView: View {
 
     @State private var searchText = ""
     @State private var showArchived = false
-    @State private var exerciseBeingEdited: Exercise?
     @State private var isCreatingExercise = false
 
     var body: some View {
@@ -26,12 +25,9 @@ struct ExerciseLibraryView: View {
             ForEach(groupedExercises, id: \.group) { section in
                 Section(section.group.displayName) {
                     ForEach(section.exercises) { exercise in
-                        Button {
-                            exerciseBeingEdited = exercise
-                        } label: {
+                        NavigationLink(value: exercise) {
                             row(for: exercise)
                         }
-                        .buttonStyle(.plain)
                         .swipeActions(edge: .trailing) {
                             if exercise.isArchived {
                                 Button("Unarchive", systemImage: "tray.and.arrow.up") {
@@ -64,9 +60,6 @@ struct ExerciseLibraryView: View {
         }
         .sheet(isPresented: $isCreatingExercise) {
             ExerciseEditorView(exercise: nil)
-        }
-        .sheet(item: $exerciseBeingEdited) { exercise in
-            ExerciseEditorView(exercise: exercise)
         }
     }
 
@@ -127,6 +120,11 @@ struct ExerciseLibraryView: View {
 #Preview {
     NavigationStack {
         ExerciseLibraryView()
+            // Supplied by TemplateListView in the real app; the preview has to
+            // register it itself.
+            .navigationDestination(for: Exercise.self) { exercise in
+                ExerciseDetailView(exercise: exercise)
+            }
     }
     .modelContainer(SampleData.previewContainer)
 }

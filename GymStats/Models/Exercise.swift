@@ -43,4 +43,20 @@ final class Exercise {
         get { MuscleGroup(rawValue: muscleGroupRaw) ?? .other }
         set { muscleGroupRaw = newValue.rawValue }
     }
+
+    /// Every finished performance of this exercise, oldest first.
+    ///
+    /// Charts want ascending time. Unfinished sessions and exercises that were
+    /// skipped (no completed sets) are excluded — plotting a zero for a workout
+    /// where you never did the movement would read as a collapse in strength.
+    var performanceHistory: [SessionExercise] {
+        (sessionEntries ?? [])
+            .filter { entry in
+                guard let session = entry.session else { return false }
+                return !session.isInProgress && !entry.completedSets.isEmpty
+            }
+            .sorted {
+                ($0.session?.startedAt ?? .distantPast) < ($1.session?.startedAt ?? .distantPast)
+            }
+    }
 }

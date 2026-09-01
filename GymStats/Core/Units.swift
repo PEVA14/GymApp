@@ -18,6 +18,13 @@ enum WeightUnit: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    var displayName: String {
+        switch self {
+        case .kilograms: "Kilograms (kg)"
+        case .pounds: "Pounds (lb)"
+        }
+    }
+
     /// Canonical (kg) -> display value in this unit.
     func fromKilograms(_ kg: Double) -> Double {
         switch self {
@@ -44,6 +51,13 @@ enum LengthUnit: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .centimetres: "cm"
         case .inches: "in"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .centimetres: "Centimetres (cm)"
+        case .inches: "Inches (in)"
         }
     }
 
