@@ -5,8 +5,13 @@ import SwiftUI
 struct RootView: View {
     var body: some View {
         TabView {
+            // For now the Train tab is the exercise library. In step 3 it
+            // becomes the routine list, and the library moves behind a
+            // toolbar button there.
             Tab("Train", systemImage: "dumbbell.fill") {
-                PlaceholderView(title: "Train", detail: "Routines and active workouts")
+                NavigationStack {
+                    ExerciseLibraryView()
+                }
             }
             Tab("History", systemImage: "clock.arrow.circlepath") {
                 PlaceholderView(title: "History", detail: "Past workout sessions")
