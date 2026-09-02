@@ -207,6 +207,58 @@ final class SessionExercise {
         orderedSets.filter(\.isCompleted)
     }
 
+    /// Switches the *remaining* sets to a different exercise — the machine was
+    /// taken, so you finish on a variant.
+    ///
+    /// Sets you already completed stay attached to the original exercise,
+    /// because that is what you actually did. Only the untouched rows move
+    /// across. If nothing had been completed yet the original row is removed
+    /// entirely, which makes the common case — swapping before your first set —
+    /// look like a plain substitution.
+    ///
+    /// Note this only ever touches the session. The routine is untouched, so
+    /// improvising today does not silently rewrite your plan.
+    @discardableResult
+    func switchRemainingSets(to newExercise: Exercise, in context: ModelContext) -> SessionExercise {
+        let performedSets = completedSets
+        let remaining = orderedSets.filter { !$0.isCompleted }
+        let owningSession = session
+
+        let replacement = SessionExercise(exercise: newExercise, sortOrder: sortOrder + 1)
+        context.insert(replacement)
+        replacement.session = owningSession
+
+        for (index, set) in remaining.enumerated() {
+            set.sessionExercise = replacement
+            set.sortOrder = index
+        }
+
+        // If every set was already done, the replacement still needs a row to
+        // log into.
+        if remaining.isEmpty {
+            let blank = SetEntry(sortOrder: 0)
+            context.insert(blank)
+            blank.sessionExercise = replacement
+        }
+
+        var ordered = owningSession?.orderedExercises ?? []
+        if performedSets.isEmpty {
+            ordered.removeAll { $0.id == id }
+            context.delete(self)
+        } else {
+            for (index, set) in performedSets.enumerated() {
+                set.sortOrder = index
+            }
+        }
+
+        // Keep exercise ordering dense after the insertion or removal.
+        for (index, exercise) in ordered.enumerated() {
+            exercise.sortOrder = index
+        }
+
+        return replacement
+    }
+
     /// The nearest earlier set of the same kind that has numbers in it — what a
     /// "same as last set" action should copy.
     ///

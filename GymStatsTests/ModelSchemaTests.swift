@@ -601,6 +601,91 @@ struct ModelSchemaTests {
         #expect(set.hasValues)
     }
 
+    /// Switching before you have done anything should look like a plain
+    /// substitution: one exercise, all its sets, no leftovers.
+    @Test func switchingBeforeAnySetsReplacesTheExercise() throws {
+        let barbell = Exercise(name: "Barbell Bench Press", muscleGroup: .chest)
+        let dumbbell = Exercise(name: "Dumbbell Bench Press", muscleGroup: .chest)
+        context.insert(barbell)
+        context.insert(dumbbell)
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let performed = SessionExercise(exercise: barbell, sortOrder: 0)
+        session.exercises = [performed]
+        performed.sets = [SetEntry(sortOrder: 0), SetEntry(sortOrder: 1), SetEntry(sortOrder: 2)]
+        try context.save()
+
+        performed.switchRemainingSets(to: dumbbell, in: context)
+        try context.save()
+
+        #expect(session.orderedExercises.count == 1)
+        #expect(session.orderedExercises[0].displayName == "Dumbbell Bench Press")
+        #expect(session.orderedExercises[0].orderedSets.count == 3)
+    }
+
+    /// Switching mid-exercise must not re-attribute work you already did: the
+    /// completed sets stay on the original movement, the rest move across.
+    @Test func switchingMidExerciseSplitsTheRecord() throws {
+        let barbell = Exercise(name: "Barbell Bench Press", muscleGroup: .chest)
+        let dumbbell = Exercise(name: "Dumbbell Bench Press", muscleGroup: .chest)
+        context.insert(barbell)
+        context.insert(dumbbell)
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let performed = SessionExercise(exercise: barbell, sortOrder: 0)
+        session.exercises = [performed]
+
+        let done1 = SetEntry(sortOrder: 0, weightKg: 60, reps: 8)
+        let done2 = SetEntry(sortOrder: 1, weightKg: 60, reps: 8)
+        for set in [done1, done2] { set.isCompleted = true }
+        let todo1 = SetEntry(sortOrder: 2)
+        let todo2 = SetEntry(sortOrder: 3)
+        performed.sets = [done1, done2, todo1, todo2]
+        try context.save()
+
+        performed.switchRemainingSets(to: dumbbell, in: context)
+        try context.save()
+
+        // Two exercises now, in the order they were performed.
+        #expect(session.orderedExercises.count == 2)
+        #expect(session.orderedExercises[0].displayName == "Barbell Bench Press")
+        #expect(session.orderedExercises[1].displayName == "Dumbbell Bench Press")
+
+        // The barbell work is intact and still counted.
+        #expect(session.orderedExercises[0].completedSets.count == 2)
+        #expect(TrainingMath.volume(of: session) == 960)
+
+        // The untouched rows moved across, renumbered from zero.
+        #expect(session.orderedExercises[1].orderedSets.count == 2)
+        #expect(session.orderedExercises[1].orderedSets.map(\.sortOrder) == [0, 1])
+        #expect(session.orderedExercises[1].completedSets.isEmpty)
+    }
+
+    /// Switching after finishing every set still gives you somewhere to log.
+    @Test func switchingWithNoRemainingSetsCreatesABlankRow() throws {
+        let barbell = Exercise(name: "Barbell Bench Press", muscleGroup: .chest)
+        let dumbbell = Exercise(name: "Dumbbell Bench Press", muscleGroup: .chest)
+        context.insert(barbell)
+        context.insert(dumbbell)
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let performed = SessionExercise(exercise: barbell, sortOrder: 0)
+        session.exercises = [performed]
+        let done = SetEntry(sortOrder: 0, weightKg: 60, reps: 8)
+        done.isCompleted = true
+        performed.sets = [done]
+        try context.save()
+
+        let replacement = performed.switchRemainingSets(to: dumbbell, in: context)
+        try context.save()
+
+        #expect(replacement.orderedSets.count == 1)
+        #expect(replacement.orderedSets[0].isEmpty)
+    }
+
     @Test func weightFormattingDropsTrailingZeros() {
         #expect(Formatters.weight(30) == "30")
         #expect(Formatters.weight(27.5) == "27.5")

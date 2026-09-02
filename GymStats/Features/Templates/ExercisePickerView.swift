@@ -9,6 +9,11 @@ struct ExercisePickerView: View {
     /// Exercises already in the routine — hidden, so a routine cannot end up
     /// with the same movement twice.
     let excluding: Set<UUID>
+    /// When false the picker chooses exactly one exercise — used for switching
+    /// an exercise mid-workout, where "Add (2)" would be meaningless.
+    var allowsMultipleSelection: Bool = true
+    var confirmTitle: String = "Add"
+    var title: String = "Add Exercises"
     let onAdd: ([Exercise]) -> Void
 
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
@@ -43,7 +48,7 @@ struct ExercisePickerView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("Add Exercises")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search exercises")
             .overlay { emptyStateIfNeeded }
@@ -52,7 +57,7 @@ struct ExercisePickerView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add\(selectedIDs.isEmpty ? "" : " (\(selectedIDs.count))")") {
+                    Button(confirmLabel) {
                         onAdd(availableExercises.filter { selectedIDs.contains($0.id) })
                         dismiss()
                     }
@@ -87,11 +92,19 @@ struct ExercisePickerView: View {
         }
     }
 
+    private var confirmLabel: String {
+        guard allowsMultipleSelection, selectedIDs.count > 1 else { return confirmTitle }
+        return "\(confirmTitle) (\(selectedIDs.count))"
+    }
+
     private func toggle(_ exercise: Exercise) {
         if selectedIDs.contains(exercise.id) {
             selectedIDs.remove(exercise.id)
-        } else {
+        } else if allowsMultipleSelection {
             selectedIDs.insert(exercise.id)
+        } else {
+            // Single selection: picking one replaces the other.
+            selectedIDs = [exercise.id]
         }
     }
 }

@@ -19,6 +19,10 @@ struct ActiveWorkoutView: View {
     private var restAlertsEnabled: Bool = false
 
     @State private var isConfirmingDiscard = false
+    /// Which exercise the switch picker is open for. Presented from the root:
+    /// a `.sheet` attached to a Section inside a List is not reliably honoured
+    /// and dismissed this whole screen instead.
+    @State private var exerciseBeingSwitched: SessionExercise?
     /// Bumped when a rest period ends, purely to drive the haptic.
     @State private var restCompletionCount = 0
 
@@ -41,7 +45,11 @@ struct ActiveWorkoutView: View {
                 }
 
                 ForEach(session.orderedExercises) { performed in
-                    ExerciseSection(performed: performed, onSetCompleted: startRest)
+                    ExerciseSection(
+                        performed: performed,
+                        onSetCompleted: startRest,
+                        onSwitchRequested: { exerciseBeingSwitched = performed }
+                    )
                 }
             }
             .navigationTitle(session.name)
@@ -54,6 +62,17 @@ struct ActiveWorkoutView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Finish", action: finish)
+                }
+            }
+            .sheet(item: $exerciseBeingSwitched) { performed in
+                ExercisePickerView(
+                    excluding: performed.exercise.map { [$0.id] } ?? [],
+                    allowsMultipleSelection: false,
+                    confirmTitle: "Switch",
+                    title: "Switch Exercise"
+                ) { chosen in
+                    guard let replacement = chosen.first else { return }
+                    performed.switchRemainingSets(to: replacement, in: modelContext)
                 }
             }
             .confirmationDialog(
@@ -119,6 +138,7 @@ struct ActiveWorkoutView: View {
 private struct ExerciseSection: View {
     let performed: SessionExercise
     let onSetCompleted: () -> Void
+    let onSwitchRequested: () -> Void
 
     @Environment(\.modelContext) private var modelContext
     @AppStorage(SettingsKey.weightUnit) private var weightUnit: WeightUnit = .kilograms
@@ -126,33 +146,50 @@ private struct ExerciseSection: View {
     private var units: UnitSettings { UnitSettings(weight: weightUnit) }
 
     var body: some View {
-        Section(performed.displayName) {
-            if let previous = performed.previousPerformance {
-                PreviousPerformanceRow(previous: previous, units: units)
-            }
-
-            ForEach(Array(performed.orderedSets.enumerated()), id: \.element.id) { index, set in
-                SetRow(
-                    set: set,
-                    label: setLabels[set.id] ?? "\(index + 1)",
-                    isPersonalRecord: recordSetIDs.contains(set.id),
-                    units: units,
-                    fillSuggestion: performed.previousFilledSet(before: set),
-                    onCompleted: onSetCompleted
-                )
-                .swipeActions(edge: .leading) {
-                    Button(set.isWarmUp ? "Working" : "Warm-up",
-                           systemImage: set.isWarmUp ? "figure.strengthtraining.traditional" : "flame") {
-                        set.kind = set.isWarmUp ? .working : .warmUp
-                    }
-                    .tint(set.isWarmUp ? .blue : .orange)
+        Section {
+            content
+        } header: {
+            HStack {
+                Text(performed.displayName)
+                Spacer()
+                Menu {
+                    Button("Switch Exercise", systemImage: "arrow.triangle.2.circlepath",
+                           action: onSwitchRequested)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .accessibilityLabel("\(performed.displayName) options")
                 }
             }
-            .onDelete(perform: deleteSets)
-
-            Button("Add Set", systemImage: "plus", action: addSet)
-                .font(.subheadline)
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let previous = performed.previousPerformance {
+            PreviousPerformanceRow(previous: previous, units: units)
+        }
+
+        ForEach(Array(performed.orderedSets.enumerated()), id: \.element.id) { index, set in
+            SetRow(
+                set: set,
+                label: setLabels[set.id] ?? "\(index + 1)",
+                isPersonalRecord: recordSetIDs.contains(set.id),
+                units: units,
+                fillSuggestion: performed.previousFilledSet(before: set),
+                onCompleted: onSetCompleted
+            )
+            .swipeActions(edge: .leading) {
+                Button(set.isWarmUp ? "Working" : "Warm-up",
+                       systemImage: set.isWarmUp ? "figure.strengthtraining.traditional" : "flame") {
+                    set.kind = set.isWarmUp ? .working : .warmUp
+                }
+                .tint(set.isWarmUp ? .blue : .orange)
+            }
+        }
+        .onDelete(perform: deleteSets)
+
+        Button("Add Set", systemImage: "plus", action: addSet)
+            .font(.subheadline)
     }
 
     /// Recomputed as you type, so the badge appears the moment a set beats
