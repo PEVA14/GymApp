@@ -205,6 +205,12 @@ same pattern in both, so the working one does not get "fixed" into the broken on
 Like the `Stepper` overlap, this builds clean, tests green, and behaves correctly
 while the screen is visibly wrong.
 
+**A mode toggle must never live in `.secondaryAction`.** That placement puts an
+item in the navigation bar's `...` overflow menu, which is right for one-shot
+actions (Settings) but wrong for anything that toggles a mode: `EditButton` put
+there means entering edit mode *and* leaving it both require opening the menu, so
+while editing there is no visible way out. Put `EditButton` in `.primaryAction`.
+
 **A `Stepper` lays out its label, not its control.** The `− +` control is taller
 than its text label, so stacked steppers overlap unless given a minimum height.
 Use `@ScaledMetric` for that floor so it holds at larger Dynamic Type sizes.

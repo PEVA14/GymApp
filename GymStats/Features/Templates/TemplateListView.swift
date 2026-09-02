@@ -107,7 +107,11 @@ struct TemplateListView: View {
                         Label("Exercises", systemImage: "list.bullet")
                     }
                 }
-                ToolbarItem(placement: .secondaryAction) {
+                // Not `.secondaryAction`: that hides it in the `...` overflow, and
+                // `EditButton` toggles a *mode* — once editing is on, its Done has
+                // to be visible, or leaving the mode means hunting through a menu
+                // for it. Settings is a one-shot action and belongs in there.
+                ToolbarItem(placement: .primaryAction) {
                     EditButton()
                 }
                 ToolbarItem(placement: .secondaryAction) {
