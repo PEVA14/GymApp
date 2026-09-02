@@ -40,14 +40,18 @@ final class TemplateExercise {
     var id: UUID = UUID()
     var sortOrder: Int = 0
     var targetSets: Int = 3
+    /// Ramp-up sets to pre-create before the working sets. Zero by default —
+    /// isolation work usually needs none, so warming up is opt-in per exercise.
+    var warmUpSets: Int = 0
 
     var template: WorkoutTemplate?
     var exercise: Exercise?
 
-    init(exercise: Exercise, sortOrder: Int, targetSets: Int = 3) {
+    init(exercise: Exercise, sortOrder: Int, targetSets: Int = 3, warmUpSets: Int = 0) {
         self.id = UUID()
         self.exercise = exercise
         self.sortOrder = sortOrder
         self.targetSets = targetSets
+        self.warmUpSets = warmUpSets
     }
 }

@@ -10,9 +10,10 @@ import Foundation
 /// widgets, and a future watch app can all call them without a `ModelContext`.
 enum TrainingMath {
     /// Total weight moved: the sum of weight × reps over completed sets.
+    /// Warm-ups are excluded — they are a ramp-up, not training load.
     static func volume(of sets: [SetEntry]) -> Double {
         sets
-            .filter(\.isCompleted)
+            .filter(\.countsTowardStats)
             .reduce(0) { $0 + $1.weightKg * Double($1.reps) }
     }
 
@@ -20,9 +21,9 @@ enum TrainingMath {
         session.orderedExercises.reduce(0) { $0 + volume(of: $1.orderedSets) }
     }
 
-    /// Number of completed sets in a session.
+    /// Number of completed working sets in a session. Warm-ups do not count.
     static func completedSetCount(of session: WorkoutSession) -> Int {
-        session.orderedExercises.reduce(0) { $0 + $1.orderedSets.count(where: \.isCompleted) }
+        session.orderedExercises.reduce(0) { $0 + $1.orderedSets.count(where: \.countsTowardStats) }
     }
 
     /// Estimated one-rep max using the Epley formula: `w × (1 + reps / 30)`.
@@ -47,12 +48,12 @@ enum TrainingMath {
 
     /// Heaviest single set performed, ignoring reps.
     static func topSetWeight(of performed: SessionExercise) -> Double {
-        performed.completedSets.map(\.weightKg).max() ?? 0
+        performed.workingSets.map(\.weightKg).max() ?? 0
     }
 
     /// Best estimated 1RM across the exercise's completed sets.
     static func bestOneRepMax(of performed: SessionExercise) -> Double {
-        performed.completedSets.map(estimatedOneRepMax(of:)).max() ?? 0
+        performed.workingSets.map(estimatedOneRepMax(of:)).max() ?? 0
     }
 
     static func volume(of performed: SessionExercise) -> Double {

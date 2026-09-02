@@ -107,10 +107,20 @@ extension WorkoutSession {
             context.insert(performed)
             performed.session = session
 
-            for setIndex in 0..<max(entry.targetSets, 1) {
-                let set = SetEntry(sortOrder: setIndex)
+            // Warm-ups are laid out first, then the working sets, matching the
+            // order you actually perform them in.
+            var sortOrder = 0
+            for _ in 0..<max(entry.warmUpSets, 0) {
+                let set = SetEntry(sortOrder: sortOrder, kind: .warmUp)
                 context.insert(set)
                 set.sessionExercise = performed
+                sortOrder += 1
+            }
+            for _ in 0..<max(entry.targetSets, 1) {
+                let set = SetEntry(sortOrder: sortOrder)
+                context.insert(set)
+                set.sessionExercise = performed
+                sortOrder += 1
             }
         }
 
@@ -184,7 +194,7 @@ final class SessionExercise {
                 guard candidate.id != id, let other = candidate.session else { return false }
                 return !other.isInProgress
                     && other.startedAt < startedAt
-                    && candidate.orderedSets.contains(where: \.isCompleted)
+                    && candidate.orderedSets.contains(where: \.countsTowardStats)
             }
             .max { left, right in
                 (left.session?.startedAt ?? .distantPast) < (right.session?.startedAt ?? .distantPast)
@@ -192,8 +202,26 @@ final class SessionExercise {
     }
 
     /// Completed sets only — what you actually did, not what you planned.
+    /// Includes warm-ups, because history should show the full record.
     var completedSets: [SetEntry] {
         orderedSets.filter(\.isCompleted)
+    }
+
+    /// The nearest earlier set of the same kind that has numbers in it — what a
+    /// "same as last set" action should copy.
+    ///
+    /// Same kind matters: a working set should not inherit a light warm-up's
+    /// numbers just because it happens to sit above it.
+    func previousFilledSet(before set: SetEntry) -> SetEntry? {
+        let sets = orderedSets
+        guard let index = sets.firstIndex(where: { $0.id == set.id }) else { return nil }
+        return sets[..<index].last { $0.kind == set.kind && !$0.isEmpty }
+    }
+
+    /// Completed working sets — the ones every statistic is derived from.
+    /// Warm-ups are deliberately excluded.
+    var workingSets: [SetEntry] {
+        orderedSets.filter(\.countsTowardStats)
     }
 
     /// The best estimated 1RM ever achieved for this exercise *before* this
@@ -209,7 +237,7 @@ final class SessionExercise {
                 guard candidate.id != id, let other = candidate.session else { return false }
                 return !other.isInProgress && other.startedAt < startedAt
             }
-            .flatMap(\.completedSets)
+            .flatMap(\.workingSets)
             .map(TrainingMath.estimatedOneRepMax(of:))
 
         return earlier.max()
@@ -225,7 +253,7 @@ final class SessionExercise {
         guard var best = previousBestOneRepMax else { return [] }
 
         var records: Set<UUID> = []
-        for set in completedSets {
+        for set in workingSets {
             let oneRepMax = TrainingMath.estimatedOneRepMax(of: set)
             if oneRepMax > best {
                 records.insert(set.id)
@@ -248,15 +276,36 @@ final class SetEntry {
     var reps: Int = 0
     var isCompleted: Bool = false
     var completedAt: Date?
+    /// Stored as a raw string so a value written by a newer version degrades to
+    /// a working set rather than failing to decode.
+    var kindRaw: String = SetKind.working.rawValue
     /// Rate of Perceived Exertion. Reserved — not surfaced in the UI yet.
     var rpe: Double?
 
     var sessionExercise: SessionExercise?
 
-    init(sortOrder: Int, weightKg: Double = 0, reps: Int = 0) {
+    init(sortOrder: Int, weightKg: Double = 0, reps: Int = 0, kind: SetKind = .working) {
         self.id = UUID()
         self.sortOrder = sortOrder
         self.weightKg = weightKg
         self.reps = reps
+        self.kindRaw = kind.rawValue
     }
+
+    var kind: SetKind {
+        get { SetKind(rawValue: kindRaw) ?? .working }
+        set { kindRaw = newValue.rawValue }
+    }
+
+    var isWarmUp: Bool { kind == .warmUp }
+
+    /// Both numbers entered. This is what "you actually did this set" means when
+    /// completion is inferred from typing rather than an explicit tick.
+    var hasValues: Bool { weightKg > 0 && reps > 0 }
+
+    /// Nothing entered yet — a pre-filled row still waiting on you.
+    var isEmpty: Bool { weightKg == 0 && reps == 0 }
+
+    /// A set that counts toward statistics: completed, and not a warm-up.
+    var countsTowardStats: Bool { isCompleted && !isWarmUp }
 }

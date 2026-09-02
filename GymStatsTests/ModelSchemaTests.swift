@@ -142,6 +142,37 @@ struct ModelSchemaTests {
         #expect(session.name == "Push A")
     }
 
+    /// Warm-ups defined on the routine are pre-created ahead of the working
+    /// sets, in the order you actually perform them.
+    @Test func startingWorkoutPreFillsWarmUpsBeforeWorkingSets() throws {
+        let press = Exercise(name: "Bench Press", muscleGroup: .chest)
+        let raise = Exercise(name: "Lateral Raise", muscleGroup: .shoulders)
+        context.insert(press)
+        context.insert(raise)
+
+        let template = WorkoutTemplate(name: "Push A")
+        context.insert(template)
+        template.exercises = [
+            TemplateExercise(exercise: press, sortOrder: 0, targetSets: 3, warmUpSets: 2),
+            TemplateExercise(exercise: raise, sortOrder: 1, targetSets: 3), // no warm-up
+        ]
+
+        let session = WorkoutSession.start(from: template, in: context)
+        try context.save()
+
+        let bench = session.orderedExercises[0]
+        #expect(bench.orderedSets.count == 5)
+        #expect(bench.orderedSets.map(\.kind) == [.warmUp, .warmUp, .working, .working, .working])
+
+        // Isolation work defaults to no warm-up at all.
+        let lateral = session.orderedExercises[1]
+        #expect(lateral.orderedSets.count == 3)
+        #expect(lateral.orderedSets.allSatisfy { $0.kind == .working })
+
+        // And nothing is completed yet, so no statistic counts anything.
+        #expect(TrainingMath.completedSetCount(of: session) == 0)
+    }
+
     @Test func finishingWorkoutDropsIncompleteSets() throws {
         let press = Exercise(name: "Bench Press", muscleGroup: .chest)
         context.insert(press)
@@ -438,6 +469,136 @@ struct ModelSchemaTests {
         #expect(Formatters.countdown(7) == "0:07")
         #expect(Formatters.countdown(0) == "0:00")
         #expect(Formatters.countdown(-5) == "0:00")
+    }
+
+    /// Warm-ups are recorded but must not reach any statistic — otherwise a
+    /// light ramp-up set inflates volume and can register a false record.
+    @Test func warmUpSetsAreExcludedFromStatistics() throws {
+        let press = Exercise(name: "Bench Press", muscleGroup: .chest)
+        context.insert(press)
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let performed = SessionExercise(exercise: press, sortOrder: 0)
+        session.exercises = [performed]
+
+        let warmUp = SetEntry(sortOrder: 0, weightKg: 20, reps: 15, kind: .warmUp) // 300 if counted
+        let working = SetEntry(sortOrder: 1, weightKg: 60, reps: 10)               // 600
+        for set in [warmUp, working] { set.isCompleted = true }
+        performed.sets = [warmUp, working]
+        try context.save()
+
+        #expect(performed.completedSets.count == 2)   // history keeps both
+        #expect(performed.workingSets.count == 1)     // stats see one
+        #expect(TrainingMath.volume(of: session) == 600)
+        #expect(TrainingMath.completedSetCount(of: session) == 1)
+        #expect(TrainingMath.topSetWeight(of: performed) == 60)
+    }
+
+    /// A heavy-looking warm-up must never take the PR badge.
+    @Test func warmUpCannotSetAPersonalRecord() throws {
+        let press = Exercise(name: "Bench Press", muscleGroup: .chest)
+        context.insert(press)
+
+        // History: 60 × 8.
+        let old = WorkoutSession(name: "Push A", startedAt: Date().addingTimeInterval(-7 * 86_400))
+        context.insert(old)
+        old.endedAt = old.startedAt.addingTimeInterval(3600)
+        let oldPerformed = SessionExercise(exercise: press, sortOrder: 0)
+        old.exercises = [oldPerformed]
+        let oldSet = SetEntry(sortOrder: 0, weightKg: 60, reps: 8)
+        oldSet.isCompleted = true
+        oldPerformed.sets = [oldSet]
+
+        // Today: a warm-up that would beat it if it counted, plus a lighter
+        // working set that would not.
+        let today = WorkoutSession(name: "Push A")
+        context.insert(today)
+        let performed = SessionExercise(exercise: press, sortOrder: 0)
+        today.exercises = [performed]
+        let bigWarmUp = SetEntry(sortOrder: 0, weightKg: 100, reps: 8, kind: .warmUp)
+        let realSet = SetEntry(sortOrder: 1, weightKg: 55, reps: 8)
+        for set in [bigWarmUp, realSet] { set.isCompleted = true }
+        performed.sets = [bigWarmUp, realSet]
+        try context.save()
+
+        #expect(performed.personalRecordSetIDs().isEmpty)
+    }
+
+    /// Warming up and then abandoning the exercise is not a "previous
+    /// performance" to try to beat.
+    @Test func warmUpOnlySessionIsNotAPreviousPerformance() throws {
+        let press = Exercise(name: "Bench Press", muscleGroup: .chest)
+        context.insert(press)
+
+        let old = WorkoutSession(name: "Push A", startedAt: Date().addingTimeInterval(-2 * 86_400))
+        context.insert(old)
+        old.endedAt = old.startedAt.addingTimeInterval(600)
+        let oldPerformed = SessionExercise(exercise: press, sortOrder: 0)
+        old.exercises = [oldPerformed]
+        let onlyWarmUp = SetEntry(sortOrder: 0, weightKg: 20, reps: 10, kind: .warmUp)
+        onlyWarmUp.isCompleted = true
+        oldPerformed.sets = [onlyWarmUp]
+
+        let today = WorkoutSession(name: "Push A")
+        context.insert(today)
+        let current = SessionExercise(exercise: press, sortOrder: 0)
+        today.exercises = [current]
+        try context.save()
+
+        #expect(current.previousPerformance == nil)
+        #expect(press.performanceHistory.isEmpty)
+    }
+
+    @Test func setKindDefaultsToWorkingForExistingRows() {
+        let set = SetEntry(sortOrder: 0, weightKg: 60, reps: 8)
+        #expect(set.kind == .working)
+        #expect(!set.isWarmUp)
+
+        set.kindRaw = "somethingFromAFutureVersion"
+        #expect(set.kind == .working)
+    }
+
+    /// The "same as last set" source: the nearest earlier set of the same kind
+    /// that has numbers. A working set must not inherit a warm-up's load.
+    @Test func previousFilledSetSkipsEmptyRowsAndOtherKinds() throws {
+        let press = Exercise(name: "Bench Press", muscleGroup: .chest)
+        context.insert(press)
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let performed = SessionExercise(exercise: press, sortOrder: 0)
+        session.exercises = [performed]
+
+        let warmUp = SetEntry(sortOrder: 0, weightKg: 20, reps: 10, kind: .warmUp)
+        let first = SetEntry(sortOrder: 1, weightKg: 60, reps: 8)
+        let blank = SetEntry(sortOrder: 2)                       // untouched row
+        let target = SetEntry(sortOrder: 3)
+        performed.sets = [warmUp, first, blank, target]
+        try context.save()
+
+        // Skips the empty row above it and lands on the last filled working set.
+        #expect(performed.previousFilledSet(before: target)?.id == first.id)
+
+        // The first working set does not fall back to the warm-up above it.
+        #expect(performed.previousFilledSet(before: first) == nil)
+
+        // A second warm-up would copy the first warm-up, not a working set.
+        let secondWarmUp = SetEntry(sortOrder: 4, kind: .warmUp)
+        performed.sets?.append(secondWarmUp)
+        #expect(performed.previousFilledSet(before: secondWarmUp)?.id == warmUp.id)
+    }
+
+    @Test func setValueStateReflectsWhatWasEntered() {
+        let set = SetEntry(sortOrder: 0)
+        #expect(set.isEmpty)
+        #expect(!set.hasValues)
+
+        set.weightKg = 60
+        #expect(!set.isEmpty)      // partially filled
+        #expect(!set.hasValues)    // but not a completed set yet
+
+        set.reps = 8
+        #expect(set.hasValues)
     }
 
     @Test func weightFormattingDropsTrailingZeros() {

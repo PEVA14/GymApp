@@ -80,7 +80,9 @@ private struct TemplateExerciseRow: View {
     @Bindable var entry: TemplateExercise
 
     var body: some View {
-        HStack {
+        // Stacked rather than crammed into one line: two steppers side by side
+        // on a phone leaves no room to read which is which.
+        VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.exercise?.name ?? "Deleted exercise")
                 if let group = entry.exercise?.muscleGroup {
@@ -89,17 +91,28 @@ private struct TemplateExerciseRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Spacer()
-            Stepper(
-                "\(entry.targetSets) sets",
-                value: $entry.targetSets,
-                in: 1...15
-            )
-            .labelsHidden()
-            Text("\(entry.targetSets) sets")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+
+            Stepper(value: $entry.warmUpSets, in: 0...5) {
+                Text(warmUpLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(entry.warmUpSets == 0 ? .secondary : .primary)
+                    .monospacedDigit()
+            }
+
+            Stepper(value: $entry.targetSets, in: 1...15) {
+                Text("\(entry.targetSets) working \(entry.targetSets == 1 ? "set" : "sets")")
+                    .font(.subheadline)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var warmUpLabel: String {
+        switch entry.warmUpSets {
+        case 0: "No warm-up"
+        case 1: "1 warm-up set"
+        default: "\(entry.warmUpSets) warm-up sets"
         }
     }
 }

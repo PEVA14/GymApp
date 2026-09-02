@@ -134,11 +134,19 @@ private struct ExerciseSection: View {
             ForEach(Array(performed.orderedSets.enumerated()), id: \.element.id) { index, set in
                 SetRow(
                     set: set,
-                    number: index + 1,
+                    label: setLabels[set.id] ?? "\(index + 1)",
                     isPersonalRecord: recordSetIDs.contains(set.id),
                     units: units,
+                    fillSuggestion: performed.previousFilledSet(before: set),
                     onCompleted: onSetCompleted
                 )
+                .swipeActions(edge: .leading) {
+                    Button(set.isWarmUp ? "Working" : "Warm-up",
+                           systemImage: set.isWarmUp ? "figure.strengthtraining.traditional" : "flame") {
+                        set.kind = set.isWarmUp ? .working : .warmUp
+                    }
+                    .tint(set.isWarmUp ? .blue : .orange)
+                }
             }
             .onDelete(perform: deleteSets)
 
@@ -151,6 +159,23 @@ private struct ExerciseSection: View {
     /// your old record rather than after the workout ends.
     private var recordSetIDs: Set<UUID> {
         performed.personalRecordSetIDs()
+    }
+
+    /// Warm-ups show "W"; working sets are numbered 1, 2, 3… among themselves.
+    /// Numbering warm-ups alongside working sets would make "set 3" mean
+    /// something different depending on how much you ramped up.
+    private var setLabels: [UUID: String] {
+        var labels: [UUID: String] = [:]
+        var workingNumber = 0
+        for set in performed.orderedSets {
+            if set.isWarmUp {
+                labels[set.id] = "W"
+            } else {
+                workingNumber += 1
+                labels[set.id] = "\(workingNumber)"
+            }
+        }
+        return labels
     }
 
     private func addSet() {
@@ -201,7 +226,7 @@ private struct PreviousPerformanceRow: View {
     }
 
     private var setsSummary: String {
-        previous.completedSets
+        previous.workingSets
             .map { "\(units.weightString(fromKilograms: $0.weightKg)) × \($0.reps)" }
             .joined(separator: "   ")
     }
@@ -210,16 +235,18 @@ private struct PreviousPerformanceRow: View {
 /// A single set: weight × reps, and a tick to mark it done.
 private struct SetRow: View {
     @Bindable var set: SetEntry
-    let number: Int
+    let label: String
     let isPersonalRecord: Bool
     let units: UnitSettings
+    /// The earlier set this row can copy from, if any.
+    let fillSuggestion: SetEntry?
     let onCompleted: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(number)")
+            Text(label)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(set.isWarmUp ? .orange : .secondary)
                 .frame(width: 18, alignment: .leading)
 
             TextField(units.weightSymbol, text: weightText)
@@ -238,6 +265,25 @@ private struct SetRow: View {
 
             Spacer()
 
+            if let fillSuggestion, set.isEmpty {
+                // Shows the numbers it will copy, so the button is both the
+                // affordance and the explanation.
+                Button {
+                    set.weightKg = fillSuggestion.weightKg
+                    set.reps = fillSuggestion.reps
+                } label: {
+                    Text("\(units.weightString(fromKilograms: fillSuggestion.weightKg)) × \(fillSuggestion.reps)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.quaternary, in: .capsule)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Copy previous set")
+            }
+
             if isPersonalRecord {
                 PersonalRecordBadge()
             }
@@ -250,7 +296,7 @@ private struct SetRow: View {
                     .foregroundStyle(set.isCompleted ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(set.isCompleted ? "Mark set \(number) incomplete" : "Mark set \(number) complete")
+            .accessibilityLabel(set.isCompleted ? "Mark set \(label) incomplete" : "Mark set \(label) complete")
         }
         .monospacedDigit()
     }
@@ -265,6 +311,7 @@ private struct SetRow: View {
                 let typed = Double($0.replacingOccurrences(of: ",", with: ".")) ?? 0
                 // The user types in their chosen unit; the store stays canonical.
                 set.weightKg = units.kilograms(fromDisplayed: typed)
+                syncCompletionFromTyping()
             }
         )
     }
@@ -272,8 +319,26 @@ private struct SetRow: View {
     private var repsText: Binding<String> {
         Binding(
             get: { set.reps == 0 ? "" : String(set.reps) },
-            set: { set.reps = Int($0) ?? 0 }
+            set: {
+                set.reps = Int($0) ?? 0
+                syncCompletionFromTyping()
+            }
         )
+    }
+
+    /// Typing both numbers marks the set done, so logging a set is two fields
+    /// rather than two fields and a tick.
+    ///
+    /// This lives in the text bindings on purpose: it runs only when *you* edit
+    /// a field. The copy button writes to the model directly and so does not
+    /// trip it — filling in what you intend to lift is not the same as having
+    /// lifted it.
+    private func syncCompletionFromTyping() {
+        guard set.hasValues != set.isCompleted else { return }
+
+        set.isCompleted = set.hasValues
+        set.completedAt = set.hasValues ? Date() : nil
+        if set.isCompleted { onCompleted() }
     }
 
     private func toggleCompleted() {

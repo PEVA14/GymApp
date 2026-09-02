@@ -53,7 +53,7 @@ final class Exercise {
         (sessionEntries ?? [])
             .filter { entry in
                 guard let session = entry.session else { return false }
-                return !session.isInProgress && !entry.completedSets.isEmpty
+                return !session.isInProgress && !entry.workingSets.isEmpty
             }
             .sorted {
                 ($0.session?.startedAt ?? .distantPast) < ($1.session?.startedAt ?? .distantPast)

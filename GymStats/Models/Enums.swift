@@ -24,6 +24,26 @@ enum MuscleGroup: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Whether a set is real work or a ramp-up to it.
+///
+/// Warm-up sets are recorded — they are part of what you did — but they are
+/// excluded from every derived statistic. A 20 kg ramp-up set counted as volume
+/// would inflate your training load, and counted as a performance it could
+/// register a personal record you never made.
+enum SetKind: String, CaseIterable, Identifiable, Codable {
+    case working
+    case warmUp
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .working: "Working Set"
+        case .warmUp: "Warm-up"
+        }
+    }
+}
+
 /// What kind of physical quantity a measurement is, which determines its
 /// canonical storage unit and how it is formatted.
 enum MeasurementDimension {

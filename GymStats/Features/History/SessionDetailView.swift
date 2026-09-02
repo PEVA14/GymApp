@@ -13,6 +13,16 @@ struct SessionDetailView: View {
 
     private var units: UnitSettings { UnitSettings(weight: weightUnit) }
 
+    /// Matches the active workout: warm-ups read "W", working sets are numbered
+    /// among themselves.
+    private func label(for set: SetEntry, among sets: [SetEntry]) -> String {
+        if set.isWarmUp { return "W" }
+        let workingNumber = sets
+            .prefix { $0.id != set.id }
+            .count(where: { !$0.isWarmUp })
+        return "\(workingNumber + 1)"
+    }
+
     var body: some View {
         List {
             Section {
@@ -29,9 +39,9 @@ struct SessionDetailView: View {
                     Section(performed.displayName) {
                         ForEach(Array(sets.enumerated()), id: \.element.id) { index, set in
                             HStack {
-                                Text("\(index + 1)")
+                                Text(label(for: set, among: sets))
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(set.isWarmUp ? .orange : .secondary)
                                     .frame(width: 18, alignment: .leading)
                                 Text("\(units.weightWithSymbol(fromKilograms: set.weightKg)) × \(set.reps)")
                                 Spacer()

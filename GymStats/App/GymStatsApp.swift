@@ -22,7 +22,7 @@ struct GymStatsApp: App {
             SetEntry.self,
             BodyMeasurement.self,
         ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
             return try ModelContainer(for: schema, configurations: [configuration])
@@ -30,6 +30,27 @@ struct GymStatsApp: App {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
+
+    /// SwiftData's default store lives at
+    /// `Library/Application Support/default.store` — but iOS does **not** create
+    /// `Application Support` for you. On a fresh install on a real device the
+    /// directory is missing, so the store fails to open with ENOENT
+    /// ("Failed to create file; code = 2"). Core Data then "recovers" into a
+    /// store that never persists, so inserts silently vanish.
+    ///
+    /// The simulator usually has the directory already, which is why this only
+    /// showed up on device. Creating it first makes the location deterministic
+    /// on both.
+    ///
+    /// The filename stays `default.store` so any existing store is still found.
+    private static var storeURL: URL {
+        let directory = URL.applicationSupportDirectory
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        return directory.appending(path: "default.store")
+    }
 
     var body: some Scene {
         WindowGroup {
