@@ -22,43 +22,53 @@ struct ExercisePickerView: View {
     @State private var searchText = ""
     @State private var selectedIDs: Set<UUID> = []
 
+    /// Muscle groups to show. Empty means "no filter".
+    @State private var selectedGroups: Set<MuscleGroup> = []
+
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(availableExercises) { exercise in
-                    Button {
-                        toggle(exercise)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(exercise.name)
-                                    .foregroundStyle(.primary)
-                                Text(exercise.muscleGroup.displayName)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+            // A sibling of the List rather than a `safeAreaInset` on it — an
+            // inset's background is drawn over the navigation bar's own
+            // content. See ExerciseLibraryView.
+            VStack(spacing: 0) {
+                MuscleGroupFilterBar(groups: offeredGroups, selection: $selectedGroups)
+
+                List {
+                    ForEach(availableExercises) { exercise in
+                        Button {
+                            toggle(exercise)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(exercise.name)
+                                        .foregroundStyle(.primary)
+                                    Text(exercise.muscleGroup.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if selectedIDs.contains(exercise.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
                             }
-                            Spacer()
-                            if selectedIDs.contains(exercise.id) {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.tint)
-                            }
+                            .contentShape(.rect)
                         }
-                        .contentShape(.rect)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .overlay { emptyStateIfNeeded }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search exercises")
-            .overlay { emptyStateIfNeeded }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(confirmLabel) {
-                        onAdd(availableExercises.filter { selectedIDs.contains($0.id) })
+                        onAdd(selectedExercises)
                         dismiss()
                     }
                     .disabled(selectedIDs.isEmpty)
@@ -72,6 +82,12 @@ struct ExercisePickerView: View {
         if availableExercises.isEmpty {
             if !searchText.isEmpty {
                 ContentUnavailableView.search(text: searchText)
+            } else if !selectedGroups.isEmpty {
+                ContentUnavailableView(
+                    "No Matches",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Nothing to add in the selected muscle groups.")
+                )
             } else {
                 ContentUnavailableView(
                     "Nothing to Add",
@@ -84,12 +100,33 @@ struct ExercisePickerView: View {
 
     /// Archived exercises are excluded — they should not appear in new routines,
     /// though existing routines that already use them keep working.
-    private var availableExercises: [Exercise] {
+    private func addableExercises(applyingGroupFilter: Bool) -> [Exercise] {
         exercises.filter { exercise in
             guard !exercise.isArchived, !excluding.contains(exercise.id) else { return false }
+            if applyingGroupFilter, !selectedGroups.isEmpty,
+               !selectedGroups.contains(exercise.muscleGroup) { return false }
             guard !searchText.isEmpty else { return true }
             return exercise.name.localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    private var availableExercises: [Exercise] {
+        addableExercises(applyingGroupFilter: true)
+    }
+
+    /// Only groups you can actually add from, so the bar does not list empty
+    /// categories. A selected group stays offered even once the search hides
+    /// its last exercise, or the chip would vanish with no way to switch it off.
+    private var offeredGroups: [MuscleGroup] {
+        let present = Set(addableExercises(applyingGroupFilter: false).map(\.muscleGroup))
+        return MuscleGroup.allCases.filter { present.contains($0) || selectedGroups.contains($0) }
+    }
+
+    /// Resolved against the whole library, not the filtered list: an exercise
+    /// you ticked under "Chest" must survive switching the filter to "Back".
+    /// Reading the visible list here would silently drop it on Add.
+    private var selectedExercises: [Exercise] {
+        exercises.filter { selectedIDs.contains($0.id) }
     }
 
     private var confirmLabel: String {

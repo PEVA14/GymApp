@@ -224,7 +224,9 @@ final class SessionExercise {
         let remaining = orderedSets.filter { !$0.isCompleted }
         let owningSession = session
 
-        let replacement = SessionExercise(exercise: newExercise, sortOrder: sortOrder + 1)
+        // The sort order here is provisional; the dense renumbering below is
+        // what actually places the replacement.
+        let replacement = SessionExercise(exercise: newExercise, sortOrder: sortOrder)
         context.insert(replacement)
         replacement.session = owningSession
 
@@ -241,15 +243,30 @@ final class SessionExercise {
             blank.sessionExercise = replacement
         }
 
-        var ordered = owningSession?.orderedExercises ?? []
+        // Place the replacement by index rather than by sort order. Assigning
+        // it `sortOrder + 1` ties with the exercise that already follows, and
+        // `orderedExercises` resolves ties arbitrarily — so the replacement
+        // could appear *below* the next exercise instead of directly under the
+        // one it replaces.
+        var ordered = (owningSession?.orderedExercises ?? []).filter { $0.id != replacement.id }
+        let originalIndex = ordered.firstIndex { $0.id == id }
+
+        let insertionIndex: Int
         if performedSets.isEmpty {
+            // Nothing was performed, so the original row goes away entirely and
+            // the replacement takes the slot it vacated — a plain substitution.
+            insertionIndex = originalIndex ?? ordered.count
             ordered.removeAll { $0.id == id }
             context.delete(self)
         } else {
+            // The original keeps what was actually performed and stays put; the
+            // replacement follows immediately after it.
+            insertionIndex = originalIndex.map { $0 + 1 } ?? ordered.count
             for (index, set) in performedSets.enumerated() {
                 set.sortOrder = index
             }
         }
+        ordered.insert(replacement, at: insertionIndex)
 
         // Keep exercise ordering dense after the insertion or removal.
         for (index, exercise) in ordered.enumerated() {

@@ -82,7 +82,7 @@ private struct TemplateExerciseRow: View {
     var body: some View {
         // Stacked rather than crammed into one line: two steppers side by side
         // on a phone leaves no room to read which is which.
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.exercise?.name ?? "Deleted exercise")
                 if let group = entry.exercise?.muscleGroup {
@@ -98,15 +98,22 @@ private struct TemplateExerciseRow: View {
                     .foregroundStyle(entry.warmUpSets == 0 ? .secondary : .primary)
                     .monospacedDigit()
             }
+            .frame(minHeight: stepperHeight)
 
             Stepper(value: $entry.targetSets, in: 1...15) {
                 Text("\(entry.targetSets) working \(entry.targetSets == 1 ? "set" : "sets")")
                     .font(.subheadline)
                     .monospacedDigit()
             }
+            .frame(minHeight: stepperHeight)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
+
+    /// A `Stepper` lays out its *label* in the stack, but the `− +` control is
+    /// taller than that text. Without a floor the two controls overlap by a few
+    /// points. Scaled with Dynamic Type so it holds at larger text sizes too.
+    @ScaledMetric(relativeTo: .subheadline) private var stepperHeight: CGFloat = 34
 
     private var warmUpLabel: String {
         switch entry.warmUpSets {

@@ -686,6 +686,64 @@ struct ModelSchemaTests {
         #expect(replacement.orderedSets[0].isEmpty)
     }
 
+    /// A replacement must sit directly under the exercise it replaces, not
+    /// below the one that follows. The earlier switching tests all used a
+    /// session with a single exercise, where nothing could be out of order.
+    @Test func switchingKeepsTheReplacementInPlaceAmongOtherExercises() throws {
+        let barbell = Exercise(name: "Barbell Bench Press", muscleGroup: .chest)
+        let dumbbell = Exercise(name: "Dumbbell Bench Press", muscleGroup: .chest)
+        let raise = Exercise(name: "Lateral Raise", muscleGroup: .shoulders)
+        for exercise in [barbell, dumbbell, raise] { context.insert(exercise) }
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let first = SessionExercise(exercise: barbell, sortOrder: 0)
+        let second = SessionExercise(exercise: raise, sortOrder: 1)
+        session.exercises = [first, second]
+
+        let done = SetEntry(sortOrder: 0, weightKg: 60, reps: 8)
+        done.isCompleted = true
+        first.sets = [done, SetEntry(sortOrder: 1)]
+        second.sets = [SetEntry(sortOrder: 0)]
+        try context.save()
+
+        first.switchRemainingSets(to: dumbbell, in: context)
+        try context.save()
+
+        // The replacement follows the work it continues, and the exercise that
+        // was already after them both stays last.
+        #expect(session.orderedExercises.map(\.displayName) == [
+            "Barbell Bench Press", "Dumbbell Bench Press", "Lateral Raise"
+        ])
+        #expect(session.orderedExercises.map(\.sortOrder) == [0, 1, 2])
+    }
+
+    /// The same, with nothing performed: the original row disappears and the
+    /// replacement takes the slot it vacated rather than moving to the end.
+    @Test func switchingBeforeAnySetsKeepsThePositionInTheSession() throws {
+        let barbell = Exercise(name: "Barbell Bench Press", muscleGroup: .chest)
+        let dumbbell = Exercise(name: "Dumbbell Bench Press", muscleGroup: .chest)
+        let raise = Exercise(name: "Lateral Raise", muscleGroup: .shoulders)
+        for exercise in [barbell, dumbbell, raise] { context.insert(exercise) }
+
+        let session = WorkoutSession(name: "Push A")
+        context.insert(session)
+        let first = SessionExercise(exercise: barbell, sortOrder: 0)
+        let second = SessionExercise(exercise: raise, sortOrder: 1)
+        session.exercises = [first, second]
+        first.sets = [SetEntry(sortOrder: 0)]
+        second.sets = [SetEntry(sortOrder: 0)]
+        try context.save()
+
+        first.switchRemainingSets(to: dumbbell, in: context)
+        try context.save()
+
+        #expect(session.orderedExercises.map(\.displayName) == [
+            "Dumbbell Bench Press", "Lateral Raise"
+        ])
+        #expect(session.orderedExercises.map(\.sortOrder) == [0, 1])
+    }
+
     @Test func weightFormattingDropsTrailingZeros() {
         #expect(Formatters.weight(30) == "30")
         #expect(Formatters.weight(27.5) == "27.5")

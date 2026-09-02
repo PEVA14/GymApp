@@ -75,9 +75,12 @@ GymStats/
 `Models/` must never `import SwiftUI`. That rule is what makes it a checkbox
 change to share the models with a Widget, Live Activity, or watchOS target later.
 
-The one place stateful controller objects are justified is the active workout
-(elapsed timer, current exercise/set, rest countdown) — one `@Observable` class,
-introduced when that feature is built, not before.
+**There are no `@Observable` controller classes, and so far none has been
+needed** — including for the active workout, which was expected to need one.
+Elapsed time and the rest countdown are rendered by `TimelineView` from stored
+dates, and rest completion is handled by `.task(id:)`. Neither needs an object to
+own it. Do not add one speculatively; add it when there is state that genuinely
+cannot live in the model or in `@State`.
 
 ## Data model invariants
 
@@ -107,6 +110,19 @@ future HealthKit export.
 per date with a column per body part. Adding a measurement type is a new
 `MeasurementType` case with zero schema change, and it matches how HealthKit
 models samples.
+
+**Warm-up sets are recorded but excluded from every statistic.**
+`SetEntry.kind` is `.working` or `.warmUp`; `countsTowardStats` (completed and
+not a warm-up) is the single definition every figure filters on. A warm-up must
+never contribute volume, set counts, personal records, "last time", or chart
+points — a heavy low-rep ramp-up would otherwise register a record you never
+made. `SessionExercise.completedSets` includes warm-ups (history shows the full
+record); `workingSets` is what statistics use.
+
+**The rest timer is an end date, not a countdown.** `WorkoutSession.restEndsAt`
+stores when rest ends; remaining time is always `restEndsAt - now`. A decrementing
+counter would drift, stop while backgrounded, and be wrong after the phone locks.
+It is also the shape ActivityKit wants for a Live Activity.
 
 **Enums are stored as raw `String`s** (`muscleGroupRaw`, `typeRaw`) with typed
 computed accessors, so a value written by a newer app version degrades to a
@@ -149,7 +165,55 @@ takes down the whole test process.
 an explicit `sortOrder: Int` and is read through an `orderedX` computed property.
 Never rely on the stored array's order.
 
+**A `sortOrder` only orders anything if it is unique.** `orderedX` sorts by it,
+and ties resolve arbitrarily — so assigning a value that collides with an
+existing sibling silently reintroduces the problem `sortOrder` exists to solve.
+`switchRemainingSets` did exactly this by giving the replacement `sortOrder + 1`,
+which ties with the exercise already at that position; the replacement then
+appeared below it. Insert into the ordered *array* at the index you want and
+renumber densely, rather than computing a sort key and hoping it is free. Note
+this class of bug is nondeterministic: the tie can resolve correctly, so a test
+asserting the right order may pass against the broken code — verify the fix by
+driving the UI, and treat such tests as pinning the contract, not as proof.
+
+**iOS does not create `Library/Application Support`.** SwiftData's default store
+lives there, so on a fresh install on a *real device* the store fails to open with
+ENOENT ("Failed to create file; code = 2") and Core Data then "recovers" into a
+store that never persists — inserts silently vanish. `GymStatsApp.storeURL`
+creates the directory first. The simulator usually has it already, which is why
+this only appeared on device.
+
 `ModelSchemaTests` is `@Suite(.serialized)` so a crash stays attributable to one test.
+
+## SwiftUI gotchas hit in this project
+
+**Present sheets from the root of a screen, not from a `Section` or list row.**
+A `.sheet` attached to a `Section` inside a `List` is not reliably honoured — it
+dismissed the enclosing `fullScreenCover` instead of presenting. Hold
+`@State var somethingBeingEdited: Model?` on the root view and use
+`.sheet(item:)`; rows call a closure. Compiles and tests fine; only driving the UI
+catches it.
+
+**Do not pin a bar above a `List` with `.safeAreaInset(edge: .top)`.** The inset
+reserves space in the *scroll view's* safe area, which under iOS 26 is where the
+navigation bar's large title and search field also live — an inset with a
+background paints over both, and they simply disappear. Make the bar a sibling in
+a `VStack(spacing: 0)` above the `List` instead; it still stays put while the list
+scrolls under it, because only the `List` scrolls. `MuscleGroupFilterBar` is used
+this way in both `ExerciseLibraryView` and `ExercisePickerView` — deliberately the
+same pattern in both, so the working one does not get "fixed" into the broken one.
+Like the `Stepper` overlap, this builds clean, tests green, and behaves correctly
+while the screen is visibly wrong.
+
+**A `Stepper` lays out its label, not its control.** The `− +` control is taller
+than its text label, so stacked steppers overlap unless given a minimum height.
+Use `@ScaledMetric` for that floor so it holds at larger Dynamic Type sizes.
+
+**Console noise is mostly Apple's.** `_UIReparentingView`, `RTIInputSystemClient`,
+"variant selector cell index", constraint warnings on `_UIButtonBarButton` — all
+private UIKit classes, none of them from this app (which has no UIKit views at
+all). Two questions before chasing anything: is it tagged `error:`/`fault:`, and
+does the identifier appear in the project? The real device bug above passed both.
 
 ## Status
 
@@ -159,17 +223,23 @@ The original milestone is complete. The app has three tabs:
 - **History** — sessions by month, read-only detail
 - **Body** — latest value per measurement type, per-type history with a trend chart
 
-Working end to end: exercise CRUD with archiving, template building with
-reordering and target sets, starting a workout from a routine, logging sets,
-finishing (which prunes incomplete sets), workout history, previous-performance
-display during a workout, personal-record detection, body measurements,
-measurement charts, per-exercise progression charts (top set / est. 1RM /
-volume), and a kg↔lb + cm↔in display preference.
+Working end to end: exercise CRUD with archiving; routine building with
+reordering, per-exercise working *and* warm-up set counts; starting a workout from
+a routine; logging sets; warm-up marking; copying the previous set's numbers;
+completing a set by typing weight and reps; switching an exercise mid-workout;
+a rest timer with lock-screen alerts; finishing (which prunes incomplete sets);
+workout history; previous-performance display; personal-record detection; body
+measurements; measurement charts; per-exercise progression charts (top set /
+est. 1RM / volume); and a kg↔lb + cm↔in display preference. There is an app icon.
 
-Deferred by decision, not oversight: App Group container (needs a paid developer
-account; postponed, will require a store migration), Swift 6 language mode
-(currently Swift 5 to avoid strict-concurrency noise while learning), rest timer,
-Live Activities, HealthKit, widgets, CloudKit, watchOS.
+The app runs on a real device via free provisioning (7-day profiles).
+
+Deferred by decision, not oversight: App Group container, TestFlight, CloudKit and
+HealthKit (all need the paid developer account); Swift 6 language mode (currently
+Swift 5 to avoid strict-concurrency noise while learning); Live Activities
+(buildable in the simulator for free — the groundwork is done: `restEndsAt` is an
+absolute instant, the in-progress session is persisted, and every model has a
+stable `UUID`); widgets; watchOS.
 
 ## Conventions worth matching
 
@@ -194,6 +264,19 @@ Live Activities, HealthKit, widgets, CloudKit, watchOS.
 - **A `NavigationStack` with a `path` binding must use value-based links
   throughout.** Mixing in a closure-based `NavigationLink` silently breaks any
   value-based push made from inside it — see `TrainRoute`.
+- **Typing completes a set; copying does not.** Auto-completion lives inside the
+  `TextField` bindings, so it runs only on user edits. The "copy previous set"
+  button writes to the model directly and deliberately leaves the set unticked —
+  filling in what you intend to lift is not the same as having lifted it.
+- **Switching an exercise mid-workout splits the record.** Completed sets stay on
+  the original exercise because that is what was performed; only untouched sets
+  move to the replacement. If nothing was completed the original row is removed,
+  so the common case looks like a plain substitution. The routine is never
+  modified — improvising today must not rewrite the plan.
 - Personal records are measured by estimated 1RM (Epley), which captures both
   more weight and more reps. Epley overestimates past ~12 reps; this is known and
   deliberately not clamped.
+- **Verify appearance, not just behaviour.** Two real bugs (overlapping steppers,
+  a blank app icon) were visible in screenshots that had already been reviewed for
+  behaviour. Tests and tap-throughs confirm logic; only looking at the pixels
+  catches layout.

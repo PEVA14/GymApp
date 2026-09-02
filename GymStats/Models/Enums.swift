@@ -4,7 +4,7 @@ import Foundation
 /// exercise library. Deliberately coarse — this is for finding exercises
 /// quickly, not for anatomically accurate classification.
 enum MuscleGroup: String, CaseIterable, Identifiable, Codable {
-    case chest, back, shoulders, biceps, triceps, legs, glutes, core, cardio, other
+    case chest, back, shoulders, biceps, triceps, forearms, legs, glutes, core, cardio, other
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum MuscleGroup: String, CaseIterable, Identifiable, Codable {
         case .shoulders: "Shoulders"
         case .biceps: "Biceps"
         case .triceps: "Triceps"
+        case .forearms: "Forearms"
         case .legs: "Legs"
         case .glutes: "Glutes"
         case .core: "Core"

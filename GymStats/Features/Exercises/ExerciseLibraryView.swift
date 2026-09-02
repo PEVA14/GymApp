@@ -20,34 +20,47 @@ struct ExerciseLibraryView: View {
     @State private var showArchived = false
     @State private var isCreatingExercise = false
 
+    /// Muscle groups to show. Empty means "no filter", not "show nothing" —
+    /// that way the default state needs no special-casing when the set of
+    /// groups changes.
+    @State private var selectedGroups: Set<MuscleGroup> = []
+
     var body: some View {
-        List {
-            ForEach(groupedExercises, id: \.group) { section in
-                Section(section.group.displayName) {
-                    ForEach(section.exercises) { exercise in
-                        NavigationLink(value: exercise) {
-                            row(for: exercise)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            if exercise.isArchived {
-                                Button("Unarchive", systemImage: "tray.and.arrow.up") {
-                                    exercise.isArchived = false
+        // The filter bar is a sibling of the List, not a `safeAreaInset` on it.
+        // An inset's background is drawn over the navigation bar's large title
+        // and search field, which hid both. As a sibling it simply occupies the
+        // space above the list.
+        VStack(spacing: 0) {
+            MuscleGroupFilterBar(groups: offeredGroups, selection: $selectedGroups)
+
+            List {
+                ForEach(groupedExercises, id: \.group) { section in
+                    Section(section.group.displayName) {
+                        ForEach(section.exercises) { exercise in
+                            NavigationLink(value: exercise) {
+                                row(for: exercise)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                if exercise.isArchived {
+                                    Button("Unarchive", systemImage: "tray.and.arrow.up") {
+                                        exercise.isArchived = false
+                                    }
+                                    .tint(.blue)
+                                } else {
+                                    Button("Archive", systemImage: "archivebox") {
+                                        exercise.isArchived = true
+                                    }
+                                    .tint(.orange)
                                 }
-                                .tint(.blue)
-                            } else {
-                                Button("Archive", systemImage: "archivebox") {
-                                    exercise.isArchived = true
-                                }
-                                .tint(.orange)
                             }
                         }
                     }
                 }
             }
+            .overlay { emptyStateIfNeeded }
         }
         .navigationTitle("Exercises")
         .searchable(text: $searchText, prompt: "Search exercises")
-        .overlay { emptyStateIfNeeded }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New Exercise", systemImage: "plus") {
@@ -88,30 +101,50 @@ struct ExerciseLibraryView: View {
     @ViewBuilder
     private var emptyStateIfNeeded: some View {
         if groupedExercises.isEmpty {
-            if searchText.isEmpty {
+            if !searchText.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else if !selectedGroups.isEmpty {
+                ContentUnavailableView(
+                    "No Matches",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("No exercises in the selected muscle groups.")
+                )
+            } else {
                 ContentUnavailableView(
                     "No Exercises",
                     systemImage: "dumbbell",
                     description: Text("Add the movements you train, then build routines from them.")
                 )
-            } else {
-                ContentUnavailableView.search(text: searchText)
             }
         }
+    }
+
+    /// Which chips the filter bar offers: the groups you actually have
+    /// exercises in, so the bar does not list ten empty categories. A group
+    /// that is currently selected stays offered even if the search text hides
+    /// its last exercise — otherwise the chip would vanish mid-filter and
+    /// leave no way to switch it off.
+    private var offeredGroups: [MuscleGroup] {
+        let present = Set(visibleExercises(applyingGroupFilter: false).map(\.muscleGroup))
+        return MuscleGroup.allCases.filter { present.contains($0) || selectedGroups.contains($0) }
     }
 
     /// Filtering and grouping happen in memory rather than in the `@Query`
     /// predicate. A dynamic predicate requires building the `Query` in an
     /// initialiser, and with a personal library of at most a few hundred
     /// exercises that complexity buys nothing.
-    private var groupedExercises: [(group: MuscleGroup, exercises: [Exercise])] {
-        let visible = exercises.filter { exercise in
+    private func visibleExercises(applyingGroupFilter: Bool) -> [Exercise] {
+        exercises.filter { exercise in
             guard showArchived || !exercise.isArchived else { return false }
+            if applyingGroupFilter, !selectedGroups.isEmpty,
+               !selectedGroups.contains(exercise.muscleGroup) { return false }
             guard !searchText.isEmpty else { return true }
             return exercise.name.localizedCaseInsensitiveContains(searchText)
         }
+    }
 
-        return Dictionary(grouping: visible, by: \.muscleGroup)
+    private var groupedExercises: [(group: MuscleGroup, exercises: [Exercise])] {
+        Dictionary(grouping: visibleExercises(applyingGroupFilter: true), by: \.muscleGroup)
             .map { (group: $0.key, exercises: $0.value) }
             .sorted { $0.group.displayName < $1.group.displayName }
     }
